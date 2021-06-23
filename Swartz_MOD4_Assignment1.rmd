@@ -1,0 +1,73 @@
+# Missing Data
+## Keith Swartz
+
+```{r}
+library(tidyverse)
+library(VIM)
+library(mice)
+library(skimr)
+```
+
+```{r}
+grades <- read_csv("class-grades.csv")
+```
+
+
+### Task 1
+
+```{r}
+skim(grades)
+str(grades)
+summary(grades)
+```
+
+There is missing data for the variables tutorial (1), midterm (3), takehome (3), and final (4).
+
+
+### Task 2
+```{r}
+vim_plot = aggr(grades, numbers = TRUE, prop = c(TRUE, FALSE),cex.axis=.7)
+```
+
+Yes, there is one student that is missing both midterm and takehome scores.
+
+### Task 3
+
+```{r}
+grades_rowdel<- grades %>% drop_na()
+skim(grades_rowdel)
+```
+
+In the new data frame grades_rowdel, 89 rows remain.
+
+### Task 4
+
+```{r}
+grades_coldel<- grades %>% select(-Final) 
+grades_coldel<- select(grades_coldel,-TakeHome)
+grades_coldel<- select(grades_coldel,-Midterm)
+grades_coldel<- select(grades_coldel,-Tutorial)
+
+```
+
+Only two columns remain the the data frame grades_coldel after deleted all columns with missing data.
+
+### Task 5
+
+I would choose to use the row-wise deletion used in Task 4 because with this method we are only losing 10 observations out of 99 where as when we use column-wise deletion, we get rid of 4 very important variables where, at most, 4 observations are missing.
+
+### Task 6
+
+```{r}
+set.seed(123) #sets seed for random number generator
+imp_final = mice(grades, m=5, method='pmm', printFlag=FALSE)
+#m is the number of imputations, 5 is a reasonable value as a default
+#pmm is "predictive mean matching" = imputation method for numeric data
+#printFlag reduces amount of output
+summary(imp_final)
+
+grades_complete = complete(imp_final) 
+summary(grades_complete)
+```
+
+The mean value for the variable Final is 68.33.

@@ -1,0 +1,158 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+# MOD 6 Assignment1 - Clustering
+## Keith Swartz
+
+```{r, include=FALSE}
+library(tidyverse)
+library(tidymodels)
+```
+
+```{r}
+trucks <- read_csv("trucks.csv")
+summary(trucks)
+str(trucks)
+```
+```{r}
+trucks<-select(trucks,-Driver_ID)
+```
+
+
+### Task 1
+```{r}
+ggplot(trucks,aes(x=Distance,y=Speeding))+ geom_point()
+```
+
+Yes, there seems to be 4 clusters in the trucks data set. It is roughly split by drivers who average 25 to 75 miles per day and speed 0 to 12.5% of the time, drivers who average 25 to 75 miles per day and speed 12.5 to 62.5% of the time, drivers who average 125 to 250 miles per day and speed 0 to 25% of the time, and lastly drivers who average 125 to 250 miles per day and speed 25 to 100% of the time. The dispersion of observations in the drivers who speed a larger percent of time, for both distance groups, is much larger than the drivers who speed less.
+
+### Task 2
+```{r}
+kmeans_recipe = recipe(~ Distance + Speeding, trucks) 
+
+trucks_dummy = kmeans_recipe %>% 
+  step_scale(all_numeric()) %>%
+  step_center(all_numeric()) 
+
+trucks_dummy = prep(trucks_dummy, trucks) #prepares the recipe
+
+trucks_cleaned = bake(trucks_dummy, trucks) #applies the recipe and yields a data frame
+```
+
+### Task 3
+```{r}
+set.seed(64)
+clusts = 
+  tibble(k = 2) %>%
+  mutate(
+    kclust = map(k, ~kmeans(trucks_cleaned, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, trucks_cleaned)
+  )
+
+
+```
+
+```{r}
+clusters = 
+  clusts %>%
+  unnest(cols = c(tidied))
+
+assignments = 
+  clusts %>% 
+  unnest(cols = c(augmented))
+
+clusterings = 
+  clusts %>%
+  unnest(cols = c(glanced))
+```
+```{r}
+ggplot(assignments,aes(x=Distance,y=Speeding))+geom_point(aes(color = .cluster), alpha = 0.8) + 
+  facet_wrap(~ k)
+```
+
+These two clusters are exactly what I had predicted they would be broken up into. The only interesting observations are cluster 1's furthest right observation and cluster 2's furthest left observation. The distance that both these two drivers drive is very similar but, due to the difference in rate of speeding, they are assigned to cluster 1 and 2 respectively.
+
+### Task 4
+
+```{r}
+set.seed(64)
+clusts = 
+  tibble(k = 1:8) %>%
+  mutate(
+    kclust = map(k, ~kmeans(trucks_cleaned, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, trucks_cleaned)
+  )
+
+clusters = 
+  clusts %>%
+  unnest(cols = c(tidied))
+
+assignments = 
+  clusts %>% 
+  unnest(cols = c(augmented))
+
+clusterings = 
+  clusts %>%
+  unnest(cols = c(glanced))
+
+
+ggplot(clusterings, aes(k, tot.withinss)) +
+  geom_line() +
+  geom_point()
+```
+
+I would change the number of clusters to 4, as that is where you start to see a diminishing of returns.
+
+### Task 5
+
+```{r}
+cust_clust = kmeans(trucks_cleaned, centers = 4) #run k-means clustering with k = 4
+```
+
+```{r}
+trucks = augment(cust_clust, trucks)
+```
+```{r}
+ggplot(trucks, aes(Distance,Speeding, color = .cluster)) +
+  geom_point(alpha = 0.4) + theme_bw()
+```
+
+Yes, it definitely looks like 4 is the best value for k.
+
+### Task 6
+```{r}
+set.seed(64)
+clusts = 
+  tibble(k = 4) %>%
+  mutate(
+    kclust = map(k, ~kmeans(trucks_cleaned, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, trucks_cleaned)
+  )
+
+
+clusters = 
+  clusts %>%
+  unnest(cols = c(tidied))
+
+assignments = 
+  clusts %>% 
+  unnest(cols = c(augmented))
+
+clusterings = 
+  clusts %>%
+  unnest(cols = c(glanced))
+```
+```{r}
+ggplot(trucks,aes(x=Distance,y=Speeding))+geom_point(aes(color = .cluster), alpha = 0.8) 
+```
+
+I believe that this does a much better job of defining the different clusters that are present in the data. With only two clusters, it over simplified both of those clusters when there was a more complicated pattern in the data set.
+
