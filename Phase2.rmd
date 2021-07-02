@@ -1,0 +1,303 @@
+# Phase 2
+## Keith Swartz
+
+```{r include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(mice) #package for imputation
+library(VIM) #visualizing missingness
+library(ranger) #for random forests
+library(randomForest) #also for random forests
+library(caret)
+library(skimr)
+library(GGally)
+library(gridExtra)
+library(vip) #variable importance
+library(rpart) #for classification trees
+library(rpart.plot) #plotting trees
+library(RColorBrewer) #better visualization of classification trees
+library(rattle) #better visualization of classification trees
+library(caret) #for easy confusion matrix creation 
+library(glmnet)
+library(xgboost)
+library(usemodels)
+
+ames_student <- read_csv("~/Desktop/BAN-502/Final Project/ames_student.csv")
+```
+
+
+
+### Variable Selection and Manipulation
+
+```{r}
+
+ames3 = ames_student %>% dplyr::select("Overall_Cond","Neighborhood","Year_Built","Above_Median","Full_Bath","Year_Remod_Add","Garage_Area","TotRms_AbvGrd","Gr_Liv_Area")
+
+ames3 = ames3 %>% mutate(Neighborhood = as_factor(Neighborhood)) %>%
+  mutate(Overall_Cond=as_factor(Overall_Cond))%>% 
+  mutate(Above_Median = as_factor(Above_Median)) 
+  
+  
+  
+  
+
+```
+
+
+```{r}
+set.seed(123) 
+ames3_split = initial_split(ames3, prop = 0.7, strata = Above_Median) #70% in training
+train = training(ames3_split)
+test = testing(ames3_split)
+```
+
+### Random Forest
+
+```{r}
+ames3_recipe = recipe(Above_Median ~., train) %>%
+  step_other(Neighborhood, threshold = 0.1) %>%
+  step_dummy(all_nominal(), -all_outcomes()) 
+  
+
+rf_model = rand_forest() %>% 
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+ames3_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(ames3_recipe)
+
+set.seed(123)
+ames3_fit = fit(ames3_wflow, train)
+```
+
+```{r}
+trainpredrf = predict(ames3_fit, train)
+head(trainpredrf)
+```
+
+```{r}
+confusionMatrix(trainpredrf$.pred_class, train$Above_Median, 
+                positive = "Yes")
+```
+
+
+```{r}
+testpredrf = predict(ames3_fit, test)
+head(testpredrf)
+confusionMatrix(testpredrf$.pred_class, test$Above_Median, 
+                positive = "Yes")
+```
+
+### Classification Trees
+
+```{r}
+ames4_recipe = recipe(Above_Median  ~., train)%>%
+  step_other(Neighborhood, threshold = 0.1)
+
+
+tree_model = decision_tree() %>% 
+  set_engine("rpart", model = TRUE) %>% #don't forget the model = TRUE flag
+  set_mode("classification")
+
+ames4_wflow = 
+  workflow() %>% 
+  add_model(tree_model) %>% 
+  add_recipe(ames4_recipe)
+
+ames4_fit = fit(ames4_wflow, train)
+```
+
+```{r}
+#extract the tree's fit from the fit object
+tree = ames4_fit %>% 
+  pull_workflow_fit() %>% 
+  pluck("fit")
+
+#plot the tree
+fancyRpartPlot(tree)
+```
+
+```{r}
+ames4_fit$fit$fit$fit$cptable
+```
+```{r}
+treepred = predict(ames4_fit, train, type = "class")
+head(treepred)
+```
+
+```{r}
+confusionMatrix(treepred$.pred_class,train$Above_Median,positive="Yes") #predictions first then actual
+```
+
+```{r}
+treepred_test = predict(ames4_fit, test, type = "class")
+head(treepred_test)
+```
+```{r}
+confusionMatrix(treepred_test$.pred_class,test$Above_Median,positive="Yes") #predictions first then actual
+```
+
+### Logistic Regression (Lasso)
+
+```{r}
+lasso_model = #give the model type a name 
+  logistic_reg(mixture = 1) %>% #mixture = 1 sets up Lasso
+  set_engine("glmnet") 
+
+ames5_recipe = recipe(Above_Median ~., train) %>% 
+  step_dummy(all_nominal(), -all_outcomes()) %>% #makes sure factors are treated as categorical
+  step_other(Neighborhood, threshold = 0.1)%>%
+  step_center(all_predictors()) %>% #centers the predictors
+  step_scale(all_predictors()) #scales the predictors
+
+lasso_wflow =
+  workflow() %>% 
+  add_model(lasso_model) %>% 
+  add_recipe(ames5_recipe)
+
+lasso_fit = fit(lasso_wflow, train)
+```
+```{r}
+lasso_fit %>%
+  pull_workflow_fit() %>%
+  pluck("fit")  
+```
+```{r}
+lasso_fit %>%
+  pull_workflow_fit() %>%
+  pluck("fit")  %>% 
+  coef(s = .001618) #show the coefficients for our selected lambda value
+```
+
+```{r}
+predictions = predict(lasso_fit, train)
+```
+
+
+### XGBoost Model
+
+```{r}
+use_xgboost(Above_Median ~., train) #comment me out before knitting
+set.seed(123)
+folds=vfold_cv(train,v=5)
+```
+```{r}
+start_time = Sys.time()
+
+xgboost_recipe <- 
+  recipe(formula = Above_Median ~ ., data = train) %>% 
+  #step_novel(all_nominal(), -all_outcomes()) %>% 
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE) %>% 
+  step_zv(all_predictors()) 
+
+xgboost_spec <- 
+  boost_tree(trees = tune(), min_n = tune(), tree_depth = tune(), learn_rate = tune(), 
+    loss_reduction = tune(), sample_size = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("xgboost") 
+
+xgboost_workflow <- 
+  workflow() %>% 
+  add_recipe(xgboost_recipe) %>% 
+  add_model(xgboost_spec) 
+
+set.seed(68807)
+xgboost_tune <-
+  tune_grid(xgboost_workflow, resamples = folds, grid = 25)
+
+end_time = Sys.time()
+end_time - start_time
+```
+
+```{r}
+best_xgb = select_best(xgboost_tune, "accuracy")
+
+final_xgb = finalize_workflow(
+  xgboost_workflow,
+  best_xgb
+)
+
+final_xgb
+```
+
+```{r}
+final_xgb_fit = fit(final_xgb, train)
+```
+```{r}
+trainpredxgb = predict(final_xgb_fit, train)
+head(trainpredxgb)
+```
+
+```{r}
+confusionMatrix(trainpredxgb$.pred_class, train$Above_Median, 
+                positive = "Yes")
+```
+
+```{r}
+testpredxgb = predict(final_xgb_fit, test)
+confusionMatrix(testpredxgb$.pred_class, test$Above_Median, 
+                positive = "Yes")
+```
+```{r}
+start_time = Sys.time() #for timing
+
+
+tgrid = expand.grid(
+  trees = 150, #50, 100, and 150 in default 
+  min_n = 1, #fixed at 1 as default 
+  tree_depth = c(1,2,3,4), #1, 2, and 3 in default 
+  learn_rate = c(0.01, 0.1, 0.2, 0.3), #0.3 and 0.4 in default 
+  loss_reduction = 0, #fixed at 0 in default 
+  sample_size = c(0.5,.75, 1) #0.5, 0.75, and 1 in default, we don't have much data so can choose a larger value
+)
+
+xgboost_recipe2 <- 
+  recipe(formula = Above_Median ~ ., data = train) %>% 
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE) %>% 
+  step_zv(all_predictors()) 
+
+xgboost_spec2 <- 
+  boost_tree(trees = tune(), min_n = tune(), tree_depth = tune(), learn_rate = tune(), 
+    loss_reduction = tune(), sample_size = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("xgboost") 
+
+xgboost_workflow2 <- 
+  workflow() %>% 
+  add_recipe(xgboost_recipe2) %>% 
+  add_model(xgboost_spec2) 
+
+set.seed(17429)
+xgboost_tune2 <-
+  tune_grid(xgboost_workflow2, resamples = folds, grid = tgrid)
+```
+```{r}
+best_xgb2 = select_best(xgboost_tune2, "accuracy")
+
+final_xgb2 = finalize_workflow(
+  xgboost_workflow2,
+  best_xgb2
+)
+
+final_xgb2
+```
+
+```{r}
+final_xgb_fit2 = fit(final_xgb2, train)
+trainpredxgb2 = predict(final_xgb_fit2, train)
+confusionMatrix(trainpredxgb2$.pred_class, train$Above_Median, 
+                positive = "Yes")
+```
+
+
+```{r}
+testpredxgb2 = predict(final_xgb_fit2, test)
+confusionMatrix(testpredxgb2$.pred_class, test$Above_Median, 
+                positive = "Yes")
+```
+
+```{r}
+saveRDS(final_xgb_fit2,"ames_xgb_fit.rds")
+```
