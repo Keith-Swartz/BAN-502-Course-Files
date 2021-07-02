@@ -1,0 +1,154 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+# Final Project Phase 1
+## Keith Swartz
+
+```{r include=FALSE}
+library(tidyverse) #tidyverse set of packages and functions
+library(tidymodels)
+library(glmnet) #for Lasso, ridge, and elastic net models 
+library(GGally) #create ggcorr and ggpairs plots
+library(ggcorrplot) #create an alternative to ggcorr plots
+library(MASS) #access to forward and backward selection algorithms
+library(leaps) #best subset selection
+library(lmtest) #for the dw test
+library(splines) #for nonlinear fitting
+library(car) #for calculating the variance inflation factor
+library(gridExtra)
+
+ames_student <- read_csv("ames_student.csv")
+```
+
+
+
+### Variable Selection and Manipulation
+
+```{r}
+ames2 = ames_student %>% dplyr::select("Lot_Area","Neighborhood","Overall_Cond","Year_Built","Total_Bsmt_SF","Above_Median","Year_Sold","Full_Bath","Gr_Liv_Area","Year_Remod_Add","Garage_Area","Year_Sold","Heating_QC","Bldg_Type","House_Style","TotRms_AbvGrd","Kitchen_Qual")
+
+
+
+ames2 = ames2 %>% mutate(Neighborhood = as_factor(Neighborhood)) %>%
+  mutate(Overall_Cond=as_factor(Overall_Cond))%>% 
+  mutate(Above_Median = as_factor(Above_Median)) %>%
+  mutate(Heating_QC=as.factor(Heating_QC)) %>%
+  mutate(Bldg_Type=as.factor(Bldg_Type)) %>%
+  mutate(House_Style=as.factor(House_Style)) %>%
+  mutate(Kitchen_Qual=as.factor(Kitchen_Qual))
+  
+
+```
+
+### Data Visualization
+
+```{r}
+p1=ggplot(ames2, aes(x=Overall_Cond,fill=Above_Median)) + geom_bar(position = "fill") + theme_bw()+ theme(axis.text.x = element_text(angle = 90))+
+  labs(title = "Relationship Between Overall Condition and Sale Price Above the Median ", x= "Overall Condition", y= "% Count")
+p1
+t1 = table(ames2$Above_Median, ames2$Overall_Cond)
+prop.table(t1, margin = 2 )
+```
+
+
+```{r}
+p2=ggplot(ames2, aes(x=Neighborhood,fill=Above_Median )) + geom_bar(position = "fill") + theme_bw()+theme(axis.text.x = element_text(angle = 90))
+p2
+```
+
+```{r}
+p3=ggplot(ames2, aes(x=Above_Median,y=Lot_Area )) + geom_boxplot() + theme_bw()+ylim(0,100000)
+p3
+```
+
+
+```{r}
+p4=ggplot(ames2, aes(x=Above_Median,y=Year_Built )) + geom_boxplot() + theme_bw()+
+  labs(title = "Relationship Between Year Built and Sale Price Above the Median ", x= "Above Median", y= "Year Built")
+p4
+```
+
+
+```{r}
+p5=ggplot(ames2, aes(x=Above_Median,y=Total_Bsmt_SF )) + geom_boxplot() + theme_bw()
+p5
+```
+
+
+
+```{r}
+p6=ggplot(ames2, aes(x=Above_Median,y=Year_Sold )) + geom_boxplot() + theme_bw()+
+labs(title = "Relationship Between Year Sold and Sale Price Above the Median ", x= "Above Median", y= "Year Sold")
+p6
+```
+
+
+
+```{r}
+p7=ggplot(ames2, aes(x=Above_Median,y=Full_Bath )) + geom_boxplot() + theme_bw()
+p7
+t7 = table(ames2$Above_Median, ames2$Full_Bath)
+prop.table(t7, margin = 2 )
+```
+
+
+
+```{r}
+p8=ggplot(ames2, aes(x=Above_Median,y=Gr_Liv_Area )) + geom_boxplot() + theme_bw()+
+  labs(title = "Relationship Between Above Ground Sq Ft and Sale Price Above the Median ", x= "Above Median", y= "Above Ground Square Footage")
+p8
+
+```
+
+
+
+```{r}
+p9=ggplot(ames2, aes(x=Above_Median,y=Year_Remod_Add )) + geom_boxplot() + theme_bw()
+p9
+```
+
+
+
+
+```{r}
+p11=ggplot(ames2, aes(x=Above_Median,y=Garage_Area )) + geom_boxplot() + theme_bw()
+p11
+```
+
+
+
+```{r}
+p12=ggplot(ames2, aes(x=Heating_QC,fill=Above_Median )) + geom_bar() + theme_bw()+theme(axis.text.x = element_text(angle = 90))
+p12
+```
+
+
+```{r}
+p13=ggplot(ames2, aes(x=Bldg_Type,fill=Above_Median )) + geom_bar() + theme_bw()+theme(axis.text.x = element_text(angle = 90))
+p13
+```
+
+
+```{r}
+p14=ggplot(ames2, aes(x=House_Style,fill=Above_Median )) + geom_bar() + theme_bw()+theme(axis.text.x = element_text(angle = 90))
+p14
+t14 = table(ames2$Above_Median, ames2$House_Style)
+prop.table(t14, margin = 2 )
+```
+
+
+```{r}
+p15=ggplot(ames2, aes(x=Kitchen_Qual,fill=Above_Median )) + geom_bar() + theme_bw()+theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+p16=ggplot(ames2, aes(x=Above_Median,y=TotRms_AbvGrd )) + geom_boxplot() + theme_bw()
+p16
+```
+
+
+
+
+
